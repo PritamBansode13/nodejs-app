@@ -50,3 +50,4 @@ jobs:
           service: nodejs-app-service
           cluster: dev-cluster
           wait-for-service-stability: true    
+
