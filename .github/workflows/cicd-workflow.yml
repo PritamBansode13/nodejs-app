@@ -44,10 +44,32 @@ jobs:
           container-name: nodejs-app
           image: ${{ steps.build-image.outputs.image }}
 
-      - name: Check if ECS service exists and recreate if needed
+      - name: Check if ECS service exists
         id: check-service
         run: |
-          SERVICE_STATUS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service-1 --query "services[0].status" --output text)
-          if [[ "$SERVICE_STATUS" == "INACTIVE" ]]; then
-            echo "Service is inactive. Deleting and recreating service..."
-            aws ecs delete-service
+          SERVICE_STATUS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service --query "services[0].status" --output text || echo "NOT_FOUND")
+          echo "Service status: $SERVICE_STATUS"
+          echo "status=$SERVICE_STATUS" >> $GITHUB_ENV
+
+      - name: Create ECS service if not exists
+        if: env.status == 'NOT_FOUND'
+        run: |
+          echo "Creating ECS service as it doesn't exist."
+          aws ecs create-service \
+            --cluster dev-cluster \
+            --service-name nodejs-app-service \
+            --task-definition nodejs-app-task-definition \
+            --desired-count 1 \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[subnet-abc12345],securityGroups=[sg-12345678],assignPublicIp=ENABLED}" \
+            --platform-version "LATEST"
+
+      - name: Update ECS service if exists
+        if: env.status != 'NOT_FOUND'
+        run: |
+          echo "Updating ECS service."
+          aws ecs update-service \
+            --cluster dev-cluster \
+            --service nodejs-app-service \
+            --force-new-deployment \
+            --task-definition nodejs-app-task-definition
