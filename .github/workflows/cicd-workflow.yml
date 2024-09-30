@@ -6,8 +6,7 @@ on:
 
 jobs:
   build-and-deploy:
-    runs-on: ubuntu-latest
-
+    runs-on: [ ubuntu-latest ]
     steps:
       - name: Checkout source
         uses: actions/checkout@v3
@@ -47,39 +46,21 @@ jobs:
       - name: Check if ECS service exists
         id: check-service
         run: |
-          SERVICE_EXISTS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service --query "services[0].serviceArn" --output text || echo "NOT_FOUND")
-          echo "Service exists: $SERVICE_EXISTS"
-          echo "service_exists=$SERVICE_EXISTS" >> $GITHUB_ENV
-
-      - name: Delete inactive ECS service if needed
-        if: startsWith(env.service_exists, "arn:aws:ecs")
-        run: |
-          SERVICE_STATUS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service --query "services[0].status" --output text)
-          echo "Service status: $SERVICE_STATUS"
-          if [ "$SERVICE_STATUS" == "INACTIVE" ]; then
-            echo "Deleting inactive ECS service..."
-            aws ecs delete-service --cluster dev-cluster --service nodejs-app-service --force
+          SERVICE_EXISTS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service --query "services[0].serviceArn" --output text)
+          if [[ "$SERVICE_EXISTS" == "None" ]]; then
+            echo "Service does not exist. Creating service..."
+            aws ecs create-service --cluster dev-cluster --service-name nodejs-app-service --task-definition nodejs-app-task-definition --desired-count 1 --launch-type FARGATE
+            echo "service_exists=false" >> $GITHUB_ENV
+          else
+            echo "Service exists."
+            echo "service_exists=true" >> $GITHUB_ENV
           fi
 
-      - name: Create ECS service if not exists
-        if: env.service_exists == 'NOT_FOUND'
-        run: |
-          echo "Creating ECS service..."
-          aws ecs create-service \
-            --cluster dev-cluster \
-            --service-name nodejs-app-service \
-            --task-definition nodejs-app-task-definition \
-            --desired-count 1 \
-            --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[your-subnet-id],securityGroups=[your-security-group-id],assignPublicIp=ENABLED}" \
-            --platform-version "LATEST"
-
-      - name: Update ECS service if exists
-        if: startsWith(env.service_exists, "arn:aws:ecs")
-        run: |
-          echo "Updating ECS service..."
-          aws ecs update-service \
-            --cluster dev-cluster \
-            --service nodejs-app-service \
-            --force-new-deployment \
-            --task-definition nodejs-app-task-definition
+      - name: Deploy Amazon ECS task definition
+        if: env.service_exists == 'true'
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: nodejs-app-service
+          cluster: dev-cluster
+          wait-for-service-stability: true
