@@ -43,19 +43,21 @@ jobs:
           container-name: nodejs-app
           image: ${{ steps.build-image.outputs.image }}
 
+      # Updated Check if ECS service exists and create if necessary
       - name: Check if ECS service exists
         id: check-service
         run: |
           SERVICE_EXISTS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service --query "services[0].serviceArn" --output text)
           if [ "$SERVICE_EXISTS" == "None" ]; then
-            echo "Service does not exist."
-            exit 1
+            echo "Service does not exist. Creating service..."
+            aws ecs create-service --cluster dev-cluster --service-name nodejs-app-service --task-definition nodejs-app-task-definition --desired-count 1 --launch-type FARGATE
+            echo "service_exists=false" >> $GITHUB_ENV
           else
             echo "Service exists."
-          fi
+            echo "service_exists=true" >> $GITHUB_ENV
 
       - name: Deploy Amazon ECS task definition
-        if: steps.check-service.outputs.service_exists != 'None'
+        if: env.service_exists == 'true'
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
