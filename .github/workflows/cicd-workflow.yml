@@ -51,10 +51,16 @@ jobs:
           echo "Service status: $SERVICE_STATUS"
           echo "status=$SERVICE_STATUS" >> $GITHUB_ENV
 
-      - name: Create ECS service if not exists
-        if: env.status == 'NOT_FOUND'
+      - name: Delete inactive ECS service if needed
+        if: env.status == 'INACTIVE'
         run: |
-          echo "Creating ECS service as it doesn't exist."
+          echo "Service is inactive. Deleting ECS service..."
+          aws ecs delete-service --cluster dev-cluster --service nodejs-app-service --force
+
+      - name: Create ECS service if not exists or was deleted
+        if: env.status == 'NOT_FOUND' || env.status == 'INACTIVE'
+        run: |
+          echo "Creating ECS service."
           aws ecs create-service \
             --cluster dev-cluster \
             --service-name nodejs-app-service \
@@ -65,7 +71,7 @@ jobs:
             --platform-version "LATEST"
 
       - name: Update ECS service if exists
-        if: env.status != 'NOT_FOUND'
+        if: env.status == 'ACTIVE'
         run: |
           echo "Updating ECS service."
           aws ecs update-service \
