@@ -7,6 +7,19 @@ on:
 jobs:
   build-and-deploy:
     runs-on: [ ubuntu-latest ]
+    env:  # Job-level environment variables
+      AWS_REGION: 'us-east-2'
+      ECR_REPOSITORY: 'nodejs-app'
+      CLUSTER_NAME: 'dev-cluster'
+      SERVICE_NAME: 'nodejs-app-service'
+      DESIRED_COUNT: 1
+      IMAGE_NAME: 'nodejs-app'
+      TASK_DEFINITION_FILE: 'nodejs-app-task-definition.json'
+      IMAGE_TAG: ${{ github.sha }}
+      DOCKERFILE_PATH: './Dockerfile'  # Path to Dockerfile
+      BUILD_CONTEXT: '.'  # Context for Docker build
+      NODE_ENV: 'production'  # Environment for Node.js application
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v3
@@ -16,7 +29,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: 'us-east-2'
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -28,28 +41,27 @@ jobs:
         id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-          REPOSITORY: nodejs-app
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
         run: |
-          docker build -t $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT    
+          docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG -f ${{ env.DOCKERFILE_PATH }} ${{ env.BUILD_CONTEXT }}
+          docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG" >> $GITHUB_OUTPUT    
 
       - name: Fill in the new image ID in the Amazon ECS task definition
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: nodejs-app-task-definition.json 
-          container-name: nodejs-app
+          task-definition: ${{ env.TASK_DEFINITION_FILE }} 
+          container-name: ${{ env.IMAGE_NAME }}
           image: ${{ steps.build-image.outputs.image }}
 
       - name: Check if ECS service exists
         id: check-service
         run: |
-          SERVICE_EXISTS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service --query "services[0].serviceArn" --output text)
+          SERVICE_EXISTS=$(aws ecs describe-services --cluster ${{ env.CLUSTER_NAME }} --services ${{ env.SERVICE_NAME }} --query "services[0].serviceArn" --output text)
           if [[ "$SERVICE_EXISTS" == "None" ]]; then
             echo "Service does not exist. Creating service..."
-            aws ecs create-service --cluster dev-cluster --service-name nodejs-app-service --task-definition nodejs-app-task-definition --desired-count 1 --launch-type FARGATE
+            aws ecs create-service --cluster ${{ env.CLUSTER_NAME }} --service-name ${{ env.SERVICE_NAME }} --task-definition nodejs-app-task-definition --desired-count ${{ env.DESIRED_COUNT }} --launch-type FARGATE
             echo "service_exists=false" >> $GITHUB_ENV
           else
             echo "Service exists."
@@ -61,6 +73,6 @@ jobs:
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: nodejs-app-service
-          cluster: dev-cluster
+          service: ${{ env.SERVICE_NAME }}
+          cluster: ${{ env.CLUSTER_NAME }}
           wait-for-service-stability: true
