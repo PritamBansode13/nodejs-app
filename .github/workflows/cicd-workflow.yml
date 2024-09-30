@@ -47,7 +47,7 @@ jobs:
       - name: Check if ECS service exists and recreate if needed
         id: check-service
         run: |
-          SERVICE_STATUS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service --query "services[0].status" --output text)
+          SERVICE_STATUS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service-1 --query "services[0].status" --output text)
           if [[ "$SERVICE_STATUS" == "INACTIVE" ]]; then
             echo "Service is inactive. Deleting and recreating service..."
             aws ecs delete-service
