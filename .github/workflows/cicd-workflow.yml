@@ -6,7 +6,8 @@ on:
 
 jobs:
   build-and-deploy:
-    runs-on: [ ubuntu-latest ]
+    runs-on: ubuntu-latest
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v3
@@ -43,24 +44,10 @@ jobs:
           container-name: nodejs-app
           image: ${{ steps.build-image.outputs.image }}
 
-      - name: Check if ECS service exists
+      - name: Check if ECS service exists and recreate if needed
         id: check-service
         run: |
-          SERVICE_EXISTS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service --query "services[0].serviceArn" --output text)
-          if [[ "$SERVICE_EXISTS" == "None" ]]; then
-            echo "Service does not exist. Creating service..."
-            aws ecs create-service --cluster dev-cluster --service-name nodejs-app-service --task-definition nodejs-app-task-definition --desired-count 1 --launch-type FARGATE
-            echo "service_exists=false" >> $GITHUB_ENV
-          else
-            echo "Service exists."
-            echo "service_exists=true" >> $GITHUB_ENV
-          fi
-
-      - name: Deploy Amazon ECS task definition
-        if: env.service_exists == 'true'
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: nodejs-app-service
-          cluster: dev-cluster
-          wait-for-service-stability: true
+          SERVICE_STATUS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service --query "services[0].status" --output text)
+          if [[ "$SERVICE_STATUS" == "INACTIVE" ]]; then
+            echo "Service is inactive. Deleting and recreating service..."
+            aws ecs delete-service
