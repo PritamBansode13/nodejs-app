@@ -47,33 +47,37 @@ jobs:
       - name: Check if ECS service exists
         id: check-service
         run: |
-          SERVICE_STATUS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service --query "services[0].status" --output text || echo "NOT_FOUND")
-          echo "Service status: $SERVICE_STATUS"
-          echo "status=$SERVICE_STATUS" >> $GITHUB_ENV
+          SERVICE_EXISTS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service --query "services[0].serviceArn" --output text || echo "NOT_FOUND")
+          echo "Service exists: $SERVICE_EXISTS"
+          echo "service_exists=$SERVICE_EXISTS" >> $GITHUB_ENV
 
       - name: Delete inactive ECS service if needed
-        if: env.status == 'INACTIVE'
+        if: startsWith(env.service_exists, "arn:aws:ecs")
         run: |
-          echo "Service is inactive. Deleting ECS service..."
-          aws ecs delete-service --cluster dev-cluster --service nodejs-app-service --force
+          SERVICE_STATUS=$(aws ecs describe-services --cluster dev-cluster --services nodejs-app-service --query "services[0].status" --output text)
+          echo "Service status: $SERVICE_STATUS"
+          if [ "$SERVICE_STATUS" == "INACTIVE" ]; then
+            echo "Deleting inactive ECS service..."
+            aws ecs delete-service --cluster dev-cluster --service nodejs-app-service --force
+          fi
 
-      - name: Create ECS service if not exists or was deleted
-        if: env.status == 'NOT_FOUND' || env.status == 'INACTIVE'
+      - name: Create ECS service if not exists
+        if: env.service_exists == 'NOT_FOUND'
         run: |
-          echo "Creating ECS service."
+          echo "Creating ECS service..."
           aws ecs create-service \
             --cluster dev-cluster \
             --service-name nodejs-app-service \
             --task-definition nodejs-app-task-definition \
             --desired-count 1 \
             --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[subnet-abc12345],securityGroups=[sg-12345678],assignPublicIp=ENABLED}" \
+            --network-configuration "awsvpcConfiguration={subnets=[your-subnet-id],securityGroups=[your-security-group-id],assignPublicIp=ENABLED}" \
             --platform-version "LATEST"
 
       - name: Update ECS service if exists
-        if: env.status == 'ACTIVE'
+        if: startsWith(env.service_exists, "arn:aws:ecs")
         run: |
-          echo "Updating ECS service."
+          echo "Updating ECS service..."
           aws ecs update-service \
             --cluster dev-cluster \
             --service nodejs-app-service \
